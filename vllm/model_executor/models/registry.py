@@ -99,6 +99,7 @@ _TEXT_GENERATION_MODELS = {
     "XverseForCausalLM": ("llama", "LlamaForCausalLM"),
     # [Encoder-decoder]
     "BartModel": ("bart", "BartForConditionalGeneration"),
+    "IndicTransForConditionalGeneration": ("indictrans", "IndicTransForConditionalGeneration"),
     "BartForConditionalGeneration": ("bart", "BartForConditionalGeneration"),
     "Florence2ForConditionalGeneration": ("florence2", "Florence2ForConditionalGeneration"),  # noqa: E501
 }

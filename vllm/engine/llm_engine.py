@@ -58,6 +58,7 @@ from vllm.usage.usage_lib import (UsageContext, is_usage_stats_enabled,
                                   usage_message)
 from vllm.utils import Counter, Device, deprecate_kwargs, weak_bind
 from vllm.version import __version__ as VLLM_VERSION
+from pprint import pprint
 
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
@@ -214,8 +215,11 @@ class LLMEngine:
         use_cached_outputs: bool = False,
     ) -> None:
 
+
+        pprint(vllm_config)
         self.vllm_config = vllm_config
         self.model_config = vllm_config.model_config
+        pprint(self.model_config)
         self.cache_config = vllm_config.cache_config
         self.lora_config = vllm_config.lora_config
         self.parallel_config = vllm_config.parallel_config

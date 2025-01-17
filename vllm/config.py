@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import (TYPE_CHECKING, Any, Callable, ClassVar, Counter, Dict,
                     Final, List, Literal, Mapping, Optional, Protocol, Set,
                     Tuple, Type, Union)
+from pprint import pprint
 
 import torch
 from pydantic import BaseModel, Field, PrivateAttr
@@ -731,6 +732,7 @@ class ModelConfig:
         return self.hf_text_config.hidden_size
 
     def get_head_size(self) -> int:
+        pprint(self.hf_text_config)
         # TODO remove hard code
         if hasattr(self.hf_text_config,
                    "model_type") and (self.hf_text_config.model_type
@@ -747,6 +749,12 @@ class ModelConfig:
 
         if hasattr(self.hf_text_config, "head_dim"):
             return self.hf_text_config.head_dim
+
+        if hasattr(self.hf_text_config,
+                   "model_type") and (self.hf_text_config.model_type
+                                      in ('IndicTrans')):
+            return (self.hf_text_config.encoder_embed_dim // self.hf_text_config.num_attention_heads)
+        #IndicTrans
         # FIXME(woosuk): This may not be true for all models.
         return (self.hf_text_config.hidden_size //
                 self.hf_text_config.num_attention_heads)

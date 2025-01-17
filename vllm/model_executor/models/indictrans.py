@@ -39,6 +39,7 @@ from vllm.model_executor.layers.sampler import SamplerOutput, get_sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     ParallelLMHead, VocabParallelEmbedding)
 from vllm.model_executor.model_loader.weight_utils import default_weight_loader
+from vllm.model_executor.models.bart import BartLearnedPositionalEmbedding, BartParallelLMHead, BartScaledWordEmbedding
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import IntermediateTensors
 
@@ -55,62 +56,60 @@ def get_bsz_seq_len(input_ids):
     else:
         return shp[:2]
 
+# class ITBartLearnedPositionalEmbedding(VocabParallelEmbedding):
+#     """
+#     This module learns positional embeddings up to a fixed maximum size.
+#     """
 
-class BartLearnedPositionalEmbedding(VocabParallelEmbedding):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    """
+#     def __init__(self, num_embeddings: int, embedding_dim: int):
+#         # Bart is set up so that if padding_idx is
+#         # specified then offset the embedding ids by 2
+#         # and adjust num_embeddings appropriately.
+#         # Other models don't have this hack
+#         self.offset = 2
+#         super().__init__(num_embeddings + self.offset, embedding_dim)
 
-    def __init__(self, num_embeddings: int, embedding_dim: int):
-        # Bart is set up so that if padding_idx is
-        # specified then offset the embedding ids by 2
-        # and adjust num_embeddings appropriately.
-        # Other models don't have this hack
-        self.offset = 2
-        super().__init__(num_embeddings + self.offset, embedding_dim)
-
-    def forward(
-        self,
-        positions: torch.Tensor,
-    ) -> torch.Tensor:
-        """`input_ids' shape is expected to be [bsz x seqlen]."""
-        return super().forward(positions + self.offset)
-
-
-class BartScaledWordEmbedding(VocabParallelEmbedding):
-    """
-    This module overrides VocabParallelEmbedding's
-    forward by multiplying with embeddings scale.
-    """
-
-    def __init__(self,
-                 num_embeddings: int,
-                 embedding_dim: int,
-                 embed_scale: float = 1.0):
-        super().__init__(num_embeddings, embedding_dim)
-        self.embed_scale = embed_scale
-
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
-        return super().forward(input_ids) * self.embed_scale
+#     def forward(
+#         self,
+#         positions: torch.Tensor,
+#     ) -> torch.Tensor:
+#         """`input_ids' shape is expected to be [bsz x seqlen]."""
+#         return super().forward(positions + self.offset)
 
 
-class BartParallelLMHead(ParallelLMHead):
-    """
-    This module overrides ParallelLMHead's
-    forward by dividing by embeddings scale,
-    yielding effectively the inverse of
-    BartScaledWordEmbedding
-    """
+# class BartScaledWordEmbedding(VocabParallelEmbedding):
+#     """
+#     This module overrides VocabParallelEmbedding's
+#     forward by multiplying with embeddings scale.
+#     """
 
-    def __init__(self,
-                 num_embeddings: int,
-                 embedding_dim: int,
-                 embed_scale: float = 1.0):
-        super().__init__(num_embeddings, embedding_dim)
-        self.embed_scale = embed_scale
+#     def __init__(self,
+#                  num_embeddings: int,
+#                  embedding_dim: int,
+#                  embed_scale: float = 1.0):
+#         super().__init__(num_embeddings, embedding_dim)
+#         self.embed_scale = embed_scale
 
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
-        return super().forward(input_ids) / self.embed_scale
+#     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+#         return super().forward(input_ids) * self.embed_scale
+
+# class BartParallelLMHead(ParallelLMHead):
+#     """
+#     This module overrides ParallelLMHead's
+#     forward by dividing by embeddings scale,
+#     yielding effectively the inverse of
+#     BartScaledWordEmbedding
+#     """
+
+#     def __init__(self,
+#                  num_embeddings: int,
+#                  embedding_dim: int,
+#                  embed_scale: float = 1.0):
+#         super().__init__(num_embeddings, embedding_dim)
+#         self.embed_scale = embed_scale
+
+#     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+#         return super().forward(input_ids) / self.embed_scale
 
 
 class BartEncoderAttention(nn.Module):
@@ -369,7 +368,6 @@ class BartCrossAttention(nn.Module):
 
 
 class BartEncoderLayer(nn.Module):
-
     def __init__(
         self,
         config: BartConfig,
@@ -562,7 +560,7 @@ class BartDecoderLayer(nn.Module):
         return hidden_states
 
 
-class BartEncoder(nn.Module):
+class IndicTransEncoder(nn.Module):
     """
     Transformer encoder consisting of *config.encoder_layers*
     self attention layers. Each layer is a [`BartEncoderLayer`].
@@ -583,11 +581,13 @@ class BartEncoder(nn.Module):
         self.cache_config = cache_config
         self.quant_config = quant_config
         self.lora_config = lora_config
-        embed_dim = config.d_model
+
+        embed_dim = config.encoder_embed_dim
+
         self.max_source_positions = config.max_position_embeddings
         embed_scale = math.sqrt(embed_dim) if config.scale_embedding else 1.0
 
-        self.embed_tokens = BartScaledWordEmbedding(config.vocab_size,
+        self.embed_tokens = BartScaledWordEmbedding(config.encoder_vocab_size,
                                                     embed_dim,
                                                     embed_scale=embed_scale)
 
@@ -645,7 +645,7 @@ class BartEncoder(nn.Module):
         return hidden_states
 
 
-class BartDecoder(nn.Module):
+class IndicTransDecoder(nn.Module):
     """
     Transformer decoder consisting of *config.decoder_layers* layers.
     Each layer is a [`BartDecoderLayer`]
@@ -671,7 +671,7 @@ class BartDecoder(nn.Module):
         embed_scale = math.sqrt(
             config.d_model) if config.scale_embedding else 1.0
 
-        self.embed_tokens = BartScaledWordEmbedding(config.vocab_size,
+        self.embed_tokens = BartScaledWordEmbedding(config.decoder_vocab_size,
                                                     config.d_model,
                                                     embed_scale=embed_scale)
 
@@ -735,7 +735,7 @@ class BartDecoder(nn.Module):
         return hidden_states
 
 
-class BartModel(nn.Module):
+class IndicTransModel(nn.Module):
     _tied_weights_keys = [
         "encoder.embed_tokens.weight", "decoder.embed_tokens.weight"
     ]
@@ -751,16 +751,16 @@ class BartModel(nn.Module):
         self.config = config
 
         self.padding_idx = config.pad_token_id
-        lora_vocab = (lora_config.lora_extra_vocab_size *
-                      (lora_config.max_loras or 1)) if lora_config else 0
-        self.vocab_size = config.vocab_size + lora_vocab
-        self.org_vocab_size = config.vocab_size
+        # lora_vocab = (lora_config.lora_extra_vocab_size *
+                    #   (lora_config.max_loras or 1)) if lora_config else 0
+        # # self.vocab_size = config.vocab_size + lora_vocab
+        # self.org_vocab_size = config.vocab_size
 
-        self.encoder = BartEncoder(config,
+        self.encoder = IndicTransEncoder(config,
                                    cache_config,
                                    quant_config=quant_config,
                                    prefix=f"{prefix}.encoder")
-        self.decoder = BartDecoder(config,
+        self.decoder = IndicTransDecoder(config,
                                    cache_config,
                                    quant_config=quant_config,
                                    prefix=f"{prefix}.decoder")
@@ -811,7 +811,7 @@ class BartModel(nn.Module):
         return decoder_outputs
 
 
-class BartForConditionalGeneration(nn.Module):
+class IndicTransForConditionalGeneration(nn.Module):
     base_model_prefix = "model"
 
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
@@ -820,9 +820,12 @@ class BartForConditionalGeneration(nn.Module):
         config = vllm_config.model_config.hf_config
         lora_config = vllm_config.lora_config
         # currently all existing BART models have `tie_word_embeddings` enabled
-        assert config.tie_word_embeddings
+        # assert config.tie_word_embeddings
         self.config = config
-        self.model = BartModel(vllm_config=vllm_config,
+        config.d_model = 1024
+        config.max_position_embeddings = config.max_source_positions
+
+        self.model = IndicTransModel(vllm_config=vllm_config,
                                prefix=maybe_prefix(prefix, "model"))
 
         self.unpadded_vocab_size = config.vocab_size
